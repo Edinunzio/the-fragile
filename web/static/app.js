@@ -22,22 +22,31 @@
 
   function drawChart(rows) {
     const labels = rows.map((r) => new Date(r.ts).toLocaleString());
-    const data = rows.map((r) => r.pressure_hpa);
+    // When the server downsamples it returns per-bucket min/max; draw that as a faint band
+    // behind the average line. For raw ranges min==max==pressure, so the band is invisible.
+    const datasets = [
+      // Band: max (invisible line) then min filling up to it.
+      { label: "_max", data: rows.map((r) => r.pressure_max), borderWidth: 0, pointRadius: 0, fill: false },
+      {
+        label: "_min",
+        data: rows.map((r) => r.pressure_min),
+        borderWidth: 0,
+        pointRadius: 0,
+        backgroundColor: "rgba(110,168,254,0.10)",
+        fill: "-1",
+      },
+      {
+        label: "Pressure (hPa)",
+        data: rows.map((r) => r.pressure_hpa),
+        borderColor: "#6ea8fe",
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.2,
+      },
+    ];
     const cfg = {
       type: "line",
-      data: {
-        labels,
-        datasets: [{
-          label: "Pressure (hPa)",
-          data,
-          borderColor: "#6ea8fe",
-          backgroundColor: "rgba(110,168,254,0.12)",
-          borderWidth: 1.5,
-          pointRadius: 0,
-          fill: true,
-          tension: 0.2,
-        }],
-      },
+      data: { labels, datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -45,7 +54,12 @@
           x: { ticks: { maxTicksLimit: 8, color: "#8b93a1" }, grid: { color: "#2a2f38" } },
           y: { ticks: { color: "#8b93a1" }, grid: { color: "#2a2f38" } },
         },
-        plugins: { legend: { labels: { color: "#e7e9ee" } } },
+        plugins: {
+          legend: {
+            // Hide the internal band datasets (names starting with "_").
+            labels: { color: "#e7e9ee", filter: (item) => !item.text.startsWith("_") },
+          },
+        },
       },
     };
     if (chart) {
@@ -56,9 +70,8 @@
     }
   }
 
-  function updateCards(rows) {
-    if (!rows.length) return;
-    const last = rows[rows.length - 1];
+  function updateCards(last) {
+    if (!last) return;
     document.getElementById("c-pressure").textContent = fmt(last.pressure_hpa, 2);
     document.getElementById("c-humidity").textContent = fmt(last.humidity_pct, 1);
     document.getElementById("c-temp").textContent = fmt(last.temp_c, 2);
@@ -78,9 +91,15 @@
 
   async function load(params) {
     try {
-      const rows = await fetchReadings(params);
-      drawChart(rows);
-      updateCards(rows);
+      // Chart series (possibly downsampled) and the true latest reading for the cards
+      // are fetched independently — the cards must show the real last reading and its
+      // real deltas, not a downsampled bucket average.
+      const [series, latest] = await Promise.all([
+        fetchReadings(params),
+        fetch("/api/latest").then((r) => r.json()),
+      ]);
+      drawChart(series);
+      updateCards(latest);
     } catch (e) {
       console.error(e);
     }
