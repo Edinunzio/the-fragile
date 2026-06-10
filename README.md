@@ -46,6 +46,25 @@ open http://localhost:8000
 Browse raw rows at <http://localhost:8000/data>; pick presets (24h/7d/30d/all) or a custom
 range on the dashboard.
 
+## Historical backfill (NOAA)
+
+Backfill barometric pressure from **Robbins Reef (NOAA CO-OPS 8530973)** — the closest met
+station to Bay Ridge, in the Narrows beside the Verrazzano-Narrows Bridge (40.6584, -74.0647),
+with pressure + temperature back to ~2012. Rows land in the same table under
+`source="noaa_robbins_reef"`, joinable on `ts` with the Flipper data.
+
+```sh
+# Hourly (default) — recommended; tens of thousands of rows for the full history.
+./.venv/bin/python backfill_noaa.py --begin 2012-01 --end 2026-06
+
+# All 6-minute samples instead of hourly:
+./.venv/bin/python backfill_noaa.py --begin 2024-01 --end 2024-03 --full
+```
+
+Idempotent on `(source, ts)` — safe to re-run, fills gaps, never duplicates. Chunks requests
+monthly (the CO-OPS API caps air_pressure at 31 days/request). The bridge's own sensor
+(8517986) is air-gap only and has no barometer, so Robbins Reef is the nearest pressure source.
+
 ## Tests
 
 ```sh
@@ -80,6 +99,7 @@ adds a `bme280read` CLI command; switch `READER=flipper` once it's flashed.
 | `db.py` | connect, idempotent insert, 1h/3h delta computation |
 | `notify.py` | macOS pressure-drop notification |
 | `ingest.py` | the poll loop (host, launchd) |
+| `backfill_noaa.py` | historical pressure backfill from NOAA Robbins Reef |
 | `web/` | FastAPI read-only dashboard |
 | `schema.sql` | single-table schema |
 | `firmware/` | Flipper unitemp-fork docs + serial protocol |

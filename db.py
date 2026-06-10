@@ -17,7 +17,7 @@ import psycopg
 
 from reader import Reading
 
-SOURCE = "flipper_bme280"
+DEFAULT_SOURCE = "flipper_bme280"
 
 # How far from the exact ts-1h / ts-3h target a prior reading may be and still count.
 # At a 1-minute poll cadence this is generous; it mainly covers gaps/restarts.
@@ -36,8 +36,12 @@ def connect(dsn: str | None = None) -> psycopg.Connection:
     return psycopg.connect(dsn, autocommit=True)
 
 
-def _pressure_at(conn: psycopg.Connection, target: datetime) -> float | None:
-    """Pressure of the reading closest to ``target`` within +/- tolerance, else None."""
+def _pressure_at(conn: psycopg.Connection, source: str, target: datetime) -> float | None:
+    """Pressure of the reading closest to ``target`` within +/- tolerance, else None.
+
+    Deltas are computed within a single source so we never compare a Flipper reading
+    against a NOAA one.
+    """
     row = conn.execute(
         """
         SELECT pressure_hpa
@@ -47,24 +51,27 @@ def _pressure_at(conn: psycopg.Connection, target: datetime) -> float | None:
         ORDER BY abs(extract(epoch FROM ts - %s))
         LIMIT 1
         """,
-        (SOURCE, target - _TOLERANCE, target + _TOLERANCE, target),
+        (source, target - _TOLERANCE, target + _TOLERANCE, target),
     ).fetchone()
     return row[0] if row else None
 
 
 def compute_deltas(
-    conn: psycopg.Connection, ts: datetime, pressure_hpa: float
+    conn: psycopg.Connection, source: str, ts: datetime, pressure_hpa: float
 ) -> tuple[float | None, float | None]:
     """Return (change_1h, change_3h): current pressure minus the earlier reading's."""
-    p1 = _pressure_at(conn, ts - timedelta(hours=1))
-    p3 = _pressure_at(conn, ts - timedelta(hours=3))
+    p1 = _pressure_at(conn, source, ts - timedelta(hours=1))
+    p3 = _pressure_at(conn, source, ts - timedelta(hours=3))
     change_1h = round(pressure_hpa - p1, 2) if p1 is not None else None
     change_3h = round(pressure_hpa - p3, 2) if p3 is not None else None
     return change_1h, change_3h
 
 
 def insert_reading(
-    conn: psycopg.Connection, reading: Reading, ts: datetime | None = None
+    conn: psycopg.Connection,
+    reading: Reading,
+    ts: datetime | None = None,
+    source: str = DEFAULT_SOURCE,
 ) -> tuple[float | None, float | None]:
     """Insert one reading (computing + storing deltas). Idempotent on (source, ts).
 
@@ -74,7 +81,7 @@ def insert_reading(
     if ts.tzinfo is None:
         raise ValueError("ts must be timezone-aware (UTC)")
 
-    change_1h, change_3h = compute_deltas(conn, ts, reading.pressure_hpa)
+    change_1h, change_3h = compute_deltas(conn, source, ts, reading.pressure_hpa)
 
     with conn.transaction():
         conn.execute(
@@ -87,7 +94,7 @@ def insert_reading(
             """,
             (
                 ts,
-                SOURCE,
+                source,
                 reading.pressure_hpa,
                 reading.humidity_pct,
                 reading.temp_c,
