@@ -71,6 +71,11 @@ button {
 }
 button:hover { border-color: var(--accent); }
 button.preset.active { background: var(--accent); color: #0b0d10; border-color: var(--accent); }
+.unit-toggle { display: flex; gap: 0; margin-left: auto; }
+.unit-btn { border-radius: 0; }
+.unit-btn:first-child { border-radius: 7px 0 0 7px; }
+.unit-btn:last-child { border-radius: 0 7px 7px 0; border-left: none; }
+.unit-btn.active { background: var(--accent); color: #0b0d10; border-color: var(--accent); }
 .custom { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
 .custom label { color: var(--muted); font-size: 0.8rem; display: flex; gap: 0.3rem; align-items: center; }
 input[type="datetime-local"] {

@@ -16,11 +16,11 @@
   </header>
 
   <section class="cards">
-    <div class="card"><span class="label">Pressure</span><span id="c-pressure" class="value">—</span><span class="unit">hPa</span></div>
+    <div class="card"><span class="label">Pressure</span><span id="c-pressure" class="value">—</span><span class="unit punit">inHg</span></div>
     <div class="card"><span class="label">Humidity</span><span id="c-humidity" class="value">—</span><span class="unit">%</span></div>
     <div class="card"><span class="label">Temp</span><span id="c-temp" class="value">—</span><span class="unit">°C</span></div>
-    <div class="card" id="card-d1h"><span class="label">Δ 1h</span><span id="c-d1h" class="value">—</span><span class="unit">hPa</span></div>
-    <div class="card" id="card-d3h"><span class="label">Δ 3h</span><span id="c-d3h" class="value">—</span><span class="unit">hPa</span></div>
+    <div class="card" id="card-d1h"><span class="label">Δ 1h</span><span id="c-d1h" class="value">—</span><span class="unit punit">inHg</span></div>
+    <div class="card" id="card-d3h"><span class="label">Δ 3h</span><span id="c-d3h" class="value">—</span><span class="unit punit">inHg</span></div>
     <div class="card wide"><span class="label">As of</span><span id="c-ts" class="value small">—</span></div>
   </section>
 
@@ -29,6 +29,10 @@
       {% for p in presets %}
       <button class="preset" data-range="{{ p }}">{{ p }}</button>
       {% endfor %}
+    </div>
+    <div class="unit-toggle">
+      <button class="unit-btn active" data-unit="inHg">inHg</button>
+      <button class="unit-btn" data-unit="hPa">hPa</button>
     </div>
     <form class="custom" id="custom-range">
       <label>From <input type="datetime-local" id="from"></label>

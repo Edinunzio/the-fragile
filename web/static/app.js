@@ -1,17 +1,30 @@
 // The Fragile — dashboard frontend.
 // Fetches readings for the selected range, draws the pressure chart, and fills the
 // "current reading" cards (highlighting the delta cards when a drop threshold is breached).
+//
+// Pressure is STORED and alert-checked in hPa; the UI can display hPa or inHg. Conversion is
+// linear (inHg = hPa / 33.8639), so deltas convert with the same factor — only the displayed
+// numbers change, never the alert logic.
 
 (function () {
   const body = document.body;
-  const T1 = parseFloat(body.dataset.threshold1h);
-  const T3 = parseFloat(body.dataset.threshold3h);
+  const T1 = parseFloat(body.dataset.threshold1h); // hPa
+  const T3 = parseFloat(body.dataset.threshold3h); // hPa
+  const HPA_PER_INHG = 33.8639;
 
   let chart = null;
   let activeRange = "24h";
+  let unit = "inHg";
+  let lastSeries = [];
+  let lastLatest = null;
+
+  // hPa -> current display unit.
+  const conv = (hpa) => (hpa == null ? null : unit === "inHg" ? hpa / HPA_PER_INHG : hpa);
+  const pDigits = () => (unit === "inHg" ? 2 : 1); // absolute pressure
+  const dDigits = () => (unit === "inHg" ? 3 : 1); // deltas (inHg deltas are small)
 
   const fmt = (v, digits, sign) =>
-    v === null || v === undefined ? "—" : (sign ? (v >= 0 ? "+" : "") : "") + v.toFixed(digits);
+    v == null ? "—" : (sign && v >= 0 ? "+" : "") + v.toFixed(digits);
 
   async function fetchReadings(params) {
     const qs = new URLSearchParams(params).toString();
@@ -22,22 +35,21 @@
 
   function drawChart(rows) {
     const labels = rows.map((r) => new Date(r.ts).toLocaleString());
-    // When the server downsamples it returns per-bucket min/max; draw that as a faint band
-    // behind the average line. For raw ranges min==max==pressure, so the band is invisible.
+    // Downsampled ranges carry per-bucket min/max; draw that as a faint band behind the
+    // average line. Raw ranges have min==max==pressure, so the band is invisible.
     const datasets = [
-      // Band: max (invisible line) then min filling up to it.
-      { label: "_max", data: rows.map((r) => r.pressure_max), borderWidth: 0, pointRadius: 0, fill: false },
+      { label: "_max", data: rows.map((r) => conv(r.pressure_max)), borderWidth: 0, pointRadius: 0, fill: false },
       {
         label: "_min",
-        data: rows.map((r) => r.pressure_min),
+        data: rows.map((r) => conv(r.pressure_min)),
         borderWidth: 0,
         pointRadius: 0,
         backgroundColor: "rgba(110,168,254,0.10)",
         fill: "-1",
       },
       {
-        label: "Pressure (hPa)",
-        data: rows.map((r) => r.pressure_hpa),
+        label: "Pressure (" + unit + ")",
+        data: rows.map((r) => conv(r.pressure_hpa)),
         borderColor: "#6ea8fe",
         borderWidth: 1.5,
         pointRadius: 0,
@@ -55,10 +67,7 @@
           y: { ticks: { color: "#8b93a1" }, grid: { color: "#2a2f38" } },
         },
         plugins: {
-          legend: {
-            // Hide the internal band datasets (names starting with "_").
-            labels: { color: "#e7e9ee", filter: (item) => !item.text.startsWith("_") },
-          },
+          legend: { labels: { color: "#e7e9ee", filter: (item) => !item.text.startsWith("_") } },
         },
       },
     };
@@ -72,34 +81,42 @@
 
   function updateCards(last) {
     if (!last) return;
-    document.getElementById("c-pressure").textContent = fmt(last.pressure_hpa, 2);
+    document.getElementById("c-pressure").textContent = fmt(conv(last.pressure_hpa), pDigits());
     document.getElementById("c-humidity").textContent = fmt(last.humidity_pct, 1);
     document.getElementById("c-temp").textContent = fmt(last.temp_c, 2);
-    document.getElementById("c-d1h").textContent = fmt(last.pressure_change_1h, 2, true);
-    document.getElementById("c-d3h").textContent = fmt(last.pressure_change_3h, 2, true);
+    document.getElementById("c-d1h").textContent = fmt(conv(last.pressure_change_1h), dDigits(), true);
+    document.getElementById("c-d3h").textContent = fmt(conv(last.pressure_change_3h), dDigits(), true);
     document.getElementById("c-ts").textContent = new Date(last.ts).toLocaleString();
 
+    // Alert check uses raw hPa values + hPa thresholds, regardless of display unit.
     toggleAlert("card-d1h", last.pressure_change_1h, T1);
     toggleAlert("card-d3h", last.pressure_change_3h, T3);
+
+    document.querySelectorAll(".punit").forEach((el) => (el.textContent = unit));
   }
 
-  function toggleAlert(id, delta, threshold) {
-    const el = document.getElementById(id);
-    const breached = delta !== null && delta !== undefined && delta <= -threshold;
-    el.classList.toggle("alert", breached);
+  function toggleAlert(id, deltaHpa, thresholdHpa) {
+    const breached = deltaHpa != null && deltaHpa <= -thresholdHpa;
+    document.getElementById(id).classList.toggle("alert", breached);
+  }
+
+  function render() {
+    drawChart(lastSeries);
+    updateCards(lastLatest);
   }
 
   async function load(params) {
     try {
-      // Chart series (possibly downsampled) and the true latest reading for the cards
-      // are fetched independently — the cards must show the real last reading and its
-      // real deltas, not a downsampled bucket average.
+      // Chart series (possibly downsampled) and the true latest reading for the cards are
+      // fetched independently — the cards must show the real last reading and its real
+      // deltas, not a downsampled bucket average.
       const [series, latest] = await Promise.all([
         fetchReadings(params),
         fetch("/api/latest").then((r) => r.json()),
       ]);
-      drawChart(series);
-      updateCards(latest);
+      lastSeries = series;
+      lastLatest = latest;
+      render();
     } catch (e) {
       console.error(e);
     }
@@ -111,6 +128,15 @@
       activeRange = btn.dataset.range;
       document.querySelectorAll(".preset").forEach((b) => b.classList.toggle("active", b === btn));
       load({ range: activeRange });
+    });
+  });
+
+  // Unit toggle — re-renders from cached data, no refetch.
+  document.querySelectorAll(".unit-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      unit = btn.dataset.unit;
+      document.querySelectorAll(".unit-btn").forEach((b) => b.classList.toggle("active", b === btn));
+      render();
     });
   });
 
