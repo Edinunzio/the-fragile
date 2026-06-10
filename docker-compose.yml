@@ -1,0 +1,40 @@
+# The Fragile — local infrastructure.
+#   db  : Postgres, with schema.sql auto-applied on first boot.
+#   web : FastAPI read-only dashboard.
+# ingest.py runs on the HOST (not here) — it needs USB access to the Flipper.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fragile}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fragile}
+      POSTGRES_DB: ${POSTGRES_DB:-fragile}
+    ports:
+      # Host port is configurable to avoid clashes with other local Postgres instances.
+      - "${HOST_DB_PORT:-5432}:5432"   # published so host-side ingest.py can connect
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Postgres runs every *.sql here once, when the data dir is first initialized.
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fragile} -d ${POSTGRES_DB:-fragile}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build: ./web
+    environment:
+      # Inside the compose network Postgres is reachable as host "db".
+      DATABASE_URL: postgresql://${POSTGRES_USER:-fragile}:${POSTGRES_PASSWORD:-fragile}@db:5432/${POSTGRES_DB:-fragile}
+      PRESSURE_DROP_1H: ${PRESSURE_DROP_1H:-0.5}
+      PRESSURE_DROP_3H: ${PRESSURE_DROP_3H:-1.5}
+    ports:
+      - "${HOST_WEB_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

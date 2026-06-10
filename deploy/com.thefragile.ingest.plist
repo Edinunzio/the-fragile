@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd service for the ingestion loop. Runs as a per-user LaunchAgent so it can post
+  desktop notifications (a LaunchDaemon runs without a GUI session and can't).
+
+  Install:
+    cp deploy/com.thefragile.ingest.plist ~/Library/LaunchAgents/
+    # edit the absolute paths below to match your checkout, then:
+    launchctl load ~/Library/LaunchAgents/com.thefragile.ingest.plist
+
+  Manage:
+    launchctl list | grep thefragile
+    launchctl unload ~/Library/LaunchAgents/com.thefragile.ingest.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.thefragile.ingest</string>
+
+    <!-- Use the project venv's python so deps resolve. EDIT THESE PATHS. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/liz/Projects/the-fragile/.venv/bin/python</string>
+        <string>/Users/liz/Projects/the-fragile/ingest.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/liz/Projects/the-fragile</string>
+
+    <!-- Start at login and restart if it ever exits. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/liz/Projects/the-fragile/ingest.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/liz/Projects/the-fragile/ingest.log</string>
+</dict>
+</plist>

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Fragile — All readings</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <h1>All readings</h1>
+    <nav><a href="/">← Dashboard</a></nav>
+  </header>
+
+  <form class="custom" method="get" action="/data">
+    <label>From <input type="datetime-local" name="from" value="{{ frm }}"></label>
+    <label>To <input type="datetime-local" name="to" value="{{ to }}"></label>
+    <input type="hidden" name="per_page" value="{{ per_page }}">
+    <button type="submit">Filter</button>
+  </form>
+
+  <table class="readings">
+    <thead>
+      <tr>
+        <th>Timestamp (UTC)</th>
+        <th>Pressure (hPa)</th>
+        <th>Δ 1h</th>
+        <th>Δ 3h</th>
+        <th>Humidity (%)</th>
+        <th>Temp (°C)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.ts }}</td>
+        <td>{{ "%.2f"|format(r.pressure_hpa) }}</td>
+        <td>{{ "%+.2f"|format(r.pressure_change_1h) if r.pressure_change_1h is not none else "—" }}</td>
+        <td>{{ "%+.2f"|format(r.pressure_change_3h) if r.pressure_change_3h is not none else "—" }}</td>
+        <td>{{ "%.1f"|format(r.humidity_pct) if r.humidity_pct is not none else "—" }}</td>
+        <td>{{ "%.2f"|format(r.temp_c) if r.temp_c is not none else "—" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">No readings yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <nav class="pager">
+    {% if page > 1 %}<a href="/data?page={{ page - 1 }}&per_page={{ per_page }}&from={{ frm }}&to={{ to }}">← Newer</a>{% endif %}
+    <span>Page {{ page }}</span>
+    {% if has_next %}<a href="/data?page={{ page + 1 }}&per_page={{ per_page }}&from={{ frm }}&to={{ to }}">Older →</a>{% endif %}
+  </nav>
+</body>
+</html>

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Fragile — Pressure</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body
+  data-threshold-1h="{{ threshold_1h }}"
+  data-threshold-3h="{{ threshold_3h }}">
+
+  <header>
+    <h1>The Fragile</h1>
+    <nav><a href="/data">Browse all data →</a></nav>
+  </header>
+
+  <section class="cards">
+    <div class="card"><span class="label">Pressure</span><span id="c-pressure" class="value">—</span><span class="unit">hPa</span></div>
+    <div class="card"><span class="label">Humidity</span><span id="c-humidity" class="value">—</span><span class="unit">%</span></div>
+    <div class="card"><span class="label">Temp</span><span id="c-temp" class="value">—</span><span class="unit">°C</span></div>
+    <div class="card" id="card-d1h"><span class="label">Δ 1h</span><span id="c-d1h" class="value">—</span><span class="unit">hPa</span></div>
+    <div class="card" id="card-d3h"><span class="label">Δ 3h</span><span id="c-d3h" class="value">—</span><span class="unit">hPa</span></div>
+    <div class="card wide"><span class="label">As of</span><span id="c-ts" class="value small">—</span></div>
+  </section>
+
+  <section class="controls">
+    <div class="presets">
+      {% for p in presets %}
+      <button class="preset" data-range="{{ p }}">{{ p }}</button>
+      {% endfor %}
+    </div>
+    <form class="custom" id="custom-range">
+      <label>From <input type="datetime-local" id="from"></label>
+      <label>To <input type="datetime-local" id="to"></label>
+      <button type="submit">Apply</button>
+    </form>
+  </section>
+
+  <section class="chart-wrap">
+    <canvas id="chart"></canvas>
+  </section>
+
+  <script src="/static/chart.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+# Ingestion dependencies (run on the host — needs USB access to the Flipper).
+#   python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+psycopg[binary]>=3.1,<4
+pyserial>=3.5,<4
+python-dotenv>=1.0,<2
