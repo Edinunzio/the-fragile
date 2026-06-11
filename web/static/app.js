@@ -53,6 +53,8 @@
         borderColor: "#6ea8fe",
         borderWidth: 1.5,
         pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHoverBackgroundColor: "#6ea8fe",
         tension: 0.2,
       },
     ];
@@ -62,12 +64,20 @@
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        // Trigger hover/tooltip anywhere along the x-position, not only when the cursor is
+        // exactly on an (invisible) point.
+        interaction: { mode: "index", intersect: false },
+        onHover: (event, elements) => {
+          showPoint(elements && elements.length ? elements[0].index : null);
+        },
         scales: {
           x: { ticks: { maxTicksLimit: 8, color: "#8b93a1" }, grid: { color: "#2a2f38" } },
           y: { ticks: { color: "#8b93a1" }, grid: { color: "#2a2f38" } },
         },
         plugins: {
           legend: { labels: { color: "#e7e9ee", filter: (item) => !item.text.startsWith("_") } },
+          // Hide the internal band datasets from the tooltip too.
+          tooltip: { filter: (item) => !item.dataset.label.startsWith("_") },
         },
       },
     };
@@ -98,6 +108,14 @@
   function toggleAlert(id, deltaHpa, thresholdHpa) {
     const breached = deltaHpa != null && deltaHpa <= -thresholdHpa;
     document.getElementById(id).classList.toggle("alert", breached);
+  }
+
+  // Point the cards at a hovered chart point (scrubbing), or back to the latest reading.
+  function showPoint(i) {
+    const scrubbing = i != null && !!lastSeries[i];
+    document.body.classList.toggle("scrubbing", scrubbing);
+    document.getElementById("ts-label").textContent = scrubbing ? "At cursor" : "As of";
+    updateCards(scrubbing ? lastSeries[i] : lastLatest);
   }
 
   function render() {
@@ -152,6 +170,9 @@
     if (to) params.to = new Date(to).toISOString();
     load(params);
   });
+
+  // Leaving the chart returns the cards to the latest reading.
+  document.getElementById("chart").addEventListener("mouseleave", () => showPoint(null));
 
   // Initial load + light auto-refresh on preset ranges.
   document.querySelector('.preset[data-range="24h"]').classList.add("active");

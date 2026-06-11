@@ -156,7 +156,8 @@ def _query_series(
 
     if bucket is None:
         sql = f"""
-            SELECT ts, pressure_hpa, pressure_hpa, pressure_hpa, humidity_pct, temp_c
+            SELECT ts, pressure_hpa, pressure_hpa, pressure_hpa, humidity_pct, temp_c,
+                   pressure_change_1h, pressure_change_3h
             FROM environmental_reading
             {where}
             ORDER BY ts ASC
@@ -164,13 +165,17 @@ def _query_series(
         """
         params.append(max_points * 5)
     else:
+        # For downsampled buckets the deltas are averaged — a reasonable "typical rate of
+        # change during this bucket" so the hover readout stays populated.
         sql = f"""
             SELECT date_trunc(%s, ts) AS bucket,
                    round(avg(pressure_hpa)::numeric, 2),
                    round(min(pressure_hpa)::numeric, 2),
                    round(max(pressure_hpa)::numeric, 2),
                    round(avg(humidity_pct)::numeric, 1),
-                   round(avg(temp_c)::numeric, 2)
+                   round(avg(temp_c)::numeric, 2),
+                   round(avg(pressure_change_1h)::numeric, 2),
+                   round(avg(pressure_change_3h)::numeric, 2)
             FROM environmental_reading
             {where}
             GROUP BY bucket
@@ -192,6 +197,8 @@ def _query_series(
             "pressure_max": f(r[3]),
             "humidity_pct": f(r[4]),
             "temp_c": f(r[5]),
+            "pressure_change_1h": f(r[6]),
+            "pressure_change_3h": f(r[7]),
         }
         for r in rows
     ]

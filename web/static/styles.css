@@ -51,6 +51,9 @@ header nav a:hover, .pager a:hover { text-decoration: underline; }
 .card .unit { color: var(--muted); font-size: 0.75rem; }
 .card.alert { border-color: var(--alert); }
 .card.alert .value { color: var(--alert); }
+/* While scrubbing the chart, hint that the "At cursor" card reflects a selected time. */
+body.scrubbing .card.wide { border-color: var(--accent); }
+.chart-wrap { cursor: crosshair; }
 
 /* Controls */
 .controls {
