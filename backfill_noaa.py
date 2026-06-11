@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Backfill historical barometric pressure from a NOAA CO-OPS station.
 
-Default station is Robbins Reef (8530973), in the Narrows beside the Verrazzano-Narrows
-Bridge — the closest NOAA met station to Bay Ridge (40.6584, -74.0647) that reports air
-pressure. (The bridge's own sensor, 8517986, is air-gap only — no barometer.) Data goes
-back to ~2012 at 6-minute resolution.
+Default station is Robbins Reef (8530973, 40.6584/-74.0647), a NOAA met station in the
+Narrows beside the Verrazzano-Narrows Bridge that reports air pressure. (The bridge's own
+sensor, 8517986, is air-gap only — no barometer.) Data goes back to ~2012 at 6-minute
+resolution.
 
 Rows land in the same environmental_reading table under source="noaa_robbins_reef", so they
 join the Flipper data on ts and feed the same dashboard. Idempotent on (source, ts): safe to
