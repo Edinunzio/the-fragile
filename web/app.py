@@ -19,6 +19,9 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+import backfill_noaa  # shared module, baked into the image
+import db
+
 BASE = Path(__file__).parent
 app = FastAPI(title="The Fragile")
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
@@ -219,6 +222,22 @@ def api_readings(
 def api_latest():
     rows = _query_readings(None, None, limit=1, newest_first=True)
     return JSONResponse(rows[0] if rows else None)
+
+
+@app.post("/api/sync")
+def api_sync():
+    """Gap-fill recent NOAA readings on demand (the dashboard's "Update" button).
+
+    The only write route in the app. Uses an autocommit connection (db.connect) so the
+    inserted rows persist correctly.
+    """
+    conn = db.connect()
+    try:
+        inserted = backfill_noaa.sync_recent(conn)
+    finally:
+        conn.close()
+    latest = _query_readings(None, None, limit=1, newest_first=True)
+    return JSONResponse({"inserted": inserted, "latest": latest[0] if latest else None})
 
 
 @app.get("/")

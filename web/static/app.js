@@ -184,6 +184,27 @@
     load(params);
   });
 
+  // "Update" button — pull recent NOAA data, then refresh the view.
+  const syncBtn = document.getElementById("sync-btn");
+  const syncStatus = document.getElementById("sync-status");
+  syncBtn.addEventListener("click", async () => {
+    syncBtn.disabled = true;
+    syncStatus.textContent = "Syncing…";
+    try {
+      const res = await fetch("/api/sync", { method: "POST" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      syncStatus.textContent = data.inserted > 0 ? `Added ${data.inserted} readings` : "Up to date";
+      await load(activeRange ? { range: activeRange } : { range: "24h" });
+    } catch (e) {
+      syncStatus.textContent = "Sync failed";
+      console.error(e);
+    } finally {
+      syncBtn.disabled = false;
+      setTimeout(() => (syncStatus.textContent = ""), 4000);
+    }
+  });
+
   // Leaving the chart returns the cards to the latest reading.
   document.getElementById("chart").addEventListener("mouseleave", () => showPoint(null));
 

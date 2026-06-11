@@ -25,8 +25,12 @@ header {
   margin-bottom: 1.25rem;
 }
 header h1 { margin: 0; font-size: 1.4rem; letter-spacing: 0.02em; }
+header nav { display: flex; align-items: center; gap: 0.9rem; }
 header nav a, .pager a { color: var(--accent); text-decoration: none; }
 header nav a:hover, .pager a:hover { text-decoration: underline; }
+.sync-btn { padding: 0.35rem 0.7rem; }
+.sync-btn:disabled { opacity: 0.55; cursor: default; }
+.sync-status { color: var(--muted); font-size: 0.8rem; min-width: 6rem; }
 
 /* Cards */
 .cards {

@@ -81,39 +81,85 @@ def _next_month(d: datetime) -> datetime:
     return (d.replace(day=28) + timedelta(days=7)).replace(day=1)
 
 
-def backfill(station: str, source: str, begin: datetime, end: datetime, hourly: bool) -> None:
-    conn = db.connect()
+def _insert_window(
+    conn,
+    station: str,
+    source: str,
+    begin: datetime,
+    end: datetime,
+    hourly: bool,
+    verbose: bool = True,
+) -> int:
+    """Fetch + insert readings in [begin, end], chunked monthly. Returns rows inserted."""
     total = 0
-    try:
-        for month in _month_starts(begin, end):
-            nxt = _next_month(month)
-            # CO-OPS end_date is inclusive; ask for one day before the next month starts.
-            win_end = nxt - timedelta(days=1)
-            pressures = _fetch(station, "air_pressure", month, win_end)
-            if not pressures:
+    for month in _month_starts(begin, end):
+        nxt = _next_month(month)
+        # Clamp each month's request to the exact [begin, end] window (CO-OPS end is inclusive).
+        win_start = max(month, begin)
+        win_end = min(nxt - timedelta(days=1), end)
+        pressures = _fetch(station, "air_pressure", win_start, win_end)
+        if not pressures:
+            if verbose:
                 print(f"{month:%Y-%m}: no data")
-                continue
-            temps = _fetch(station, "air_temperature", month, win_end)
+            continue
+        temps = _fetch(station, "air_temperature", win_start, win_end)
 
-            seen_hours: set[str] = set()
-            month_count = 0
-            for ts_str in sorted(pressures):
-                # NOAA timestamps are naive UTC (we asked time_zone=gmt).
-                ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
-                if hourly:
-                    hour_key = ts_str[:13]  # "YYYY-MM-DD HH"
-                    if hour_key in seen_hours:
-                        continue
-                    seen_hours.add(hour_key)
-                reading = Reading(
-                    pressure_hpa=pressures[ts_str],
-                    humidity_pct=None,
-                    temp_c=temps.get(ts_str),
-                )
-                db.insert_reading(conn, reading, ts, source=source)
-                month_count += 1
-            total += month_count
+        seen_hours: set[str] = set()
+        month_count = 0
+        for ts_str in sorted(pressures):
+            # NOAA timestamps are naive UTC (we asked time_zone=gmt).
+            ts = datetime.strptime(ts_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+            if ts < begin or ts > end:  # day-granularity fetch can overshoot sub-day bounds
+                continue
+            if hourly:
+                hour_key = ts_str[:13]  # "YYYY-MM-DD HH"
+                if hour_key in seen_hours:
+                    continue
+                seen_hours.add(hour_key)
+            reading = Reading(
+                pressure_hpa=pressures[ts_str],
+                humidity_pct=None,
+                temp_c=temps.get(ts_str),
+            )
+            db.insert_reading(conn, reading, ts, source=source)
+            month_count += 1
+        total += month_count
+        if verbose:
             print(f"{month:%Y-%m}: {month_count} readings")
+    return total
+
+
+def latest_ts(conn, source: str) -> datetime | None:
+    """Most recent reading timestamp for a source, or None if the source has no rows."""
+    row = conn.execute(
+        "SELECT max(ts) FROM environmental_reading WHERE source = %s", (source,)
+    ).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def sync_recent(
+    conn,
+    station: str = DEFAULT_STATION,
+    source: str = DEFAULT_SOURCE,
+    default_lookback_days: int = 7,
+) -> int:
+    """Gap-fill from the latest stored reading up to now (hourly). Returns rows inserted.
+
+    Used by the dashboard's "Update" button. If the source is empty, looks back a default
+    window instead. Idempotent — re-running with no new data inserts nothing.
+    """
+    now = datetime.now(timezone.utc)
+    begin = latest_ts(conn, source) or (now - timedelta(days=default_lookback_days))
+    if begin >= now:
+        return 0
+    return _insert_window(conn, station, source, begin, now, hourly=True, verbose=False)
+
+
+def backfill(station: str, source: str, begin: datetime, end: datetime, hourly: bool) -> None:
+    """CLI entry point: backfill a [begin, end] range, printing per-month progress."""
+    conn = db.connect()
+    try:
+        total = _insert_window(conn, station, source, begin, end, hourly, verbose=True)
     finally:
         conn.close()
     print(f"done: {total} readings inserted/updated under source={source!r}")

@@ -24,7 +24,11 @@ services:
       retries: 10
 
   web:
-    build: ./web
+    build:
+      # Context is the repo root so the image can include the shared modules
+      # (db.py, reader.py, backfill_noaa.py) the NOAA sync endpoint reuses.
+      context: .
+      dockerfile: web/Dockerfile
     environment:
       # Inside the compose network Postgres is reachable as host "db".
       DATABASE_URL: postgresql://${POSTGRES_USER:-fragile}:${POSTGRES_PASSWORD:-fragile}@db:5432/${POSTGRES_DB:-fragile}

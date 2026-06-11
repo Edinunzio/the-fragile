@@ -65,6 +65,10 @@ Idempotent on `(source, ts)` — safe to re-run, fills gaps, never duplicates. C
 monthly (the CO-OPS API caps air_pressure at 31 days/request). The bridge's own sensor
 (8517986) is air-gap only and has no barometer, so Robbins Reef is the nearest pressure source.
 
+**On demand:** the dashboard's **⟳ Update** button hits `POST /api/sync`, which gap-fills from
+the latest stored reading up to now and refreshes the view — no terminal needed. This is the
+app's only write route; it runs inside the web container via the shared `backfill_noaa` module.
+
 ## Tests
 
 ```sh
