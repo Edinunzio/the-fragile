@@ -15,11 +15,14 @@
   let chart = null;
   let activeRange = "24h";
   let unit = "inHg";
+  let tempUnit = "F";
   let lastSeries = [];
   let lastLatest = null;
 
   // hPa -> current display unit.
   const conv = (hpa) => (hpa == null ? null : unit === "inHg" ? hpa / HPA_PER_INHG : hpa);
+  // stored °C -> current display unit.
+  const convT = (c) => (c == null ? null : tempUnit === "F" ? c * 9 / 5 + 32 : c);
   const pDigits = () => (unit === "inHg" ? 2 : 1); // absolute pressure
   const dDigits = () => (unit === "inHg" ? 3 : 1); // deltas (inHg deltas are small)
 
@@ -93,7 +96,7 @@
     if (!last) return;
     document.getElementById("c-pressure").textContent = fmt(conv(last.pressure_hpa), pDigits());
     document.getElementById("c-humidity").textContent = fmt(last.humidity_pct, 1);
-    document.getElementById("c-temp").textContent = fmt(last.temp_c, 2);
+    document.getElementById("c-temp").textContent = fmt(convT(last.temp_c), 1);
     document.getElementById("c-d1h").textContent = fmt(conv(last.pressure_change_1h), dDigits(), true);
     document.getElementById("c-d3h").textContent = fmt(conv(last.pressure_change_3h), dDigits(), true);
     document.getElementById("c-ts").textContent = new Date(last.ts).toLocaleString();
@@ -103,6 +106,7 @@
     toggleAlert("card-d3h", last.pressure_change_3h, T3);
 
     document.querySelectorAll(".punit").forEach((el) => (el.textContent = unit));
+    document.querySelectorAll(".tunit").forEach((el) => (el.textContent = tempUnit === "F" ? "°F" : "°C"));
   }
 
   function toggleAlert(id, deltaHpa, thresholdHpa) {
@@ -154,6 +158,15 @@
     btn.addEventListener("click", () => {
       unit = btn.dataset.unit;
       document.querySelectorAll(".unit-btn").forEach((b) => b.classList.toggle("active", b === btn));
+      render();
+    });
+  });
+
+  // Temperature unit toggle (°F default).
+  document.querySelectorAll(".tunit-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      tempUnit = btn.dataset.tunit;
+      document.querySelectorAll(".tunit-btn").forEach((b) => b.classList.toggle("active", b === btn));
       render();
     });
   });

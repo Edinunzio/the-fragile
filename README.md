@@ -48,10 +48,10 @@ range on the dashboard.
 
 ## Historical backfill (NOAA)
 
-Backfill barometric pressure from **Robbins Reef (NOAA CO-OPS 8530973)** — the closest met
-station to Bay Ridge, in the Narrows beside the Verrazzano-Narrows Bridge (40.6584, -74.0647),
-with pressure + temperature back to ~2012. Rows land in the same table under
-`source="noaa_robbins_reef"`, joinable on `ts` with the Flipper data.
+Backfill barometric pressure from **Robbins Reef (NOAA CO-OPS 8530973)** — a met station in
+the Narrows beside the Verrazzano-Narrows Bridge (40.6584, -74.0647), with pressure +
+temperature back to ~2012. Rows land in the same table under `source="noaa_robbins_reef"`,
+joinable on `ts` with the Flipper data.
 
 ```sh
 # Hourly (default) — recommended; tens of thousands of rows for the full history.
