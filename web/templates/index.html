@@ -19,6 +19,18 @@
     </nav>
   </header>
 
+  <section class="location-bar">
+    <span class="loc-current" id="loc-current">
+      📍 <strong>{{ location.name }}</strong> · NOAA {{ location.station_id }}{% if location.distance_km is not none %} · {{ location.distance_km }} km away{% endif %}
+    </span>
+    <form class="loc-form" id="loc-form">
+      <label>Lat <input type="number" step="any" id="loc-lat" value="{{ location.lat }}" required></label>
+      <label>Lon <input type="number" step="any" id="loc-lon" value="{{ location.lon }}" required></label>
+      <button type="submit">Set location</button>
+      <span id="loc-status" class="sync-status"></span>
+    </form>
+  </section>
+
   <section class="cards">
     <div class="card"><span class="label">Pressure</span><span id="c-pressure" class="value">—</span><span class="unit punit">inHg</span></div>
     <div class="card"><span class="label">Humidity</span><span id="c-humidity" class="value">—</span><span class="unit">%</span></div>

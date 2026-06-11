@@ -205,6 +205,36 @@
     }
   });
 
+  // "Set location" — resolve lat/lon to the nearest NOAA pressure station, then reload.
+  const locStatus = document.getElementById("loc-status");
+  document.getElementById("loc-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const lat = parseFloat(document.getElementById("loc-lat").value);
+    const lon = parseFloat(document.getElementById("loc-lon").value);
+    if (Number.isNaN(lat) || Number.isNaN(lon)) return;
+    locStatus.textContent = "Finding station…";
+    try {
+      const res = await fetch("/api/location", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat, lon }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+      const l = data.location;
+      document.getElementById("loc-current").innerHTML =
+        `📍 <strong>${l.name}</strong> · NOAA ${l.station_id}` +
+        (l.distance_km != null ? ` · ${l.distance_km} km away` : "");
+      locStatus.textContent = `Set · added ${data.inserted} readings`;
+      await load(activeRange ? { range: activeRange } : { range: "24h" });
+    } catch (err) {
+      locStatus.textContent = err.message;
+      console.error(err);
+    } finally {
+      setTimeout(() => (locStatus.textContent = ""), 5000);
+    }
+  });
+
   // Leaving the chart returns the cards to the latest reading.
   document.getElementById("chart").addEventListener("mouseleave", () => showPoint(null));
 

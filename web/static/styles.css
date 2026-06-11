@@ -32,6 +32,24 @@ header nav a:hover, .pager a:hover { text-decoration: underline; }
 .sync-btn:disabled { opacity: 0.55; cursor: default; }
 .sync-status { color: var(--muted); font-size: 0.8rem; min-width: 6rem; }
 
+/* Location bar */
+.location-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  padding: 0.7rem 0.9rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.loc-current { font-size: 0.95rem; }
+.loc-current strong { color: var(--accent); }
+.loc-form { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-left: auto; }
+.loc-form label { color: var(--muted); font-size: 0.8rem; display: flex; gap: 0.3rem; align-items: center; }
+.loc-form input { width: 7rem; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 0.3rem 0.4rem; }
+
 /* Cards */
 .cards {
   display: grid;

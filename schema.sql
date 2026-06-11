@@ -27,3 +27,18 @@ CREATE TABLE IF NOT EXISTS environmental_reading (
 -- Time-series access pattern: range scans and "latest N" both order by ts.
 CREATE INDEX IF NOT EXISTS environmental_reading_ts_idx
     ON environmental_reading (ts DESC);
+
+-- Single-row table holding the dashboard's active location (which NOAA station the
+-- sync/chart use). The CHECK (id) + DEFAULT true pins it to exactly one row, upserted
+-- on (id). Seeded with Robbins Reef by the web app on startup if empty.
+CREATE TABLE IF NOT EXISTS active_location (
+    id           boolean PRIMARY KEY DEFAULT true,
+    station_id   text NOT NULL,
+    source       text NOT NULL,
+    name         text NOT NULL,
+    lat          double precision NOT NULL,
+    lon          double precision NOT NULL,
+    distance_km  double precision,
+    updated_at   timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT single_row CHECK (id)
+);

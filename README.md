@@ -66,8 +66,32 @@ monthly (the CO-OPS API caps air_pressure at 31 days/request). The bridge's own 
 (8517986) is air-gap only and has no barometer, so Robbins Reef is the nearest pressure source.
 
 **On demand:** the dashboard's **⟳ Update** button hits `POST /api/sync`, which gap-fills from
-the latest stored reading up to now and refreshes the view — no terminal needed. This is the
-app's only write route; it runs inside the web container via the shared `backfill_noaa` module.
+the latest stored reading up to now and refreshes the view — no terminal needed. It runs inside
+the web container via the shared `backfill_noaa` module.
+
+## Use your own location
+
+The default station (Robbins Reef) is just a seed — set your own location two ways:
+
+**From the dashboard:** enter your **latitude/longitude** in the location bar and click
+**Set location**. The app finds the nearest NOAA station that reports air pressure, makes it
+the active source, and syncs recent data. The chart, cards, and Update button all follow the
+active location. (NOAA keys off a *station ID*, so your coordinates resolve to the closest
+station — they aren't stored; only the resolved station's coordinates are.)
+
+**From the CLI** (e.g. to pull the multi-year history for your station):
+
+```sh
+# Find the station id for your coordinates:
+python -c "import backfill_noaa, json; print(json.dumps(backfill_noaa.resolve_station(37.7749, -122.4194), indent=2))"
+# -> e.g. San Francisco Pier 1 (9414311)
+
+# Backfill that station's history (pick your own --source label):
+python backfill_noaa.py --station 9414311 --source noaa_san_francisco_pier_1 --begin 2012-01 --end 2026-06
+```
+
+Each station's data lives under its own `source`, so multiple locations coexist in the table;
+the dashboard shows whichever location is currently active.
 
 ## Tests
 

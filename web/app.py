@@ -1,15 +1,18 @@
-"""The Fragile — read-only FastAPI dashboard.
+"""The Fragile — FastAPI dashboard.
 
-Serves a live pressure dashboard (current reading, 1h/3h deltas, time-series chart) plus a
-browse-all table. Strictly read-only: there are no write routes, so it can never disturb the
-data the host-side ingest loop is recording.
+Serves a live pressure dashboard (current reading, 1h/3h deltas, time-series chart), a
+browse-all table, and two write actions: pull recent NOAA data on demand (/api/sync) and
+set the active location (/api/location). Everything reads/writes a single active location —
+which NOAA station drives the chart and sync — persisted in the active_location table.
 
-Self-contained (its own SELECTs) so the container doesn't depend on the host modules.
+The shared db/reader/backfill_noaa modules are baked into the image so the sync and station
+resolution reuse the same code as the CLI.
 """
 
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -18,14 +21,12 @@ from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 import backfill_noaa  # shared module, baked into the image
 import db
 
 BASE = Path(__file__).parent
-app = FastAPI(title="The Fragile")
-app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
-templates = Jinja2Templates(directory=BASE / "templates")
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 THRESHOLD_1H = float(os.environ.get("PRESSURE_DROP_1H", "0.5"))
@@ -41,9 +42,7 @@ PRESETS: dict[str, timedelta | None] = {
 
 # Guardrail so a raw query can't return an unbounded payload.
 MAX_ROWS = 5000
-
-# Target number of points for the chart. The server downsamples (hourly/daily/weekly
-# buckets) so any range — including 5+ years — stays around this many points.
+# Target number of points for the chart (server downsamples to stay near this).
 MAX_POINTS = 2000
 
 
@@ -51,6 +50,74 @@ def _conn() -> psycopg.Connection:
     return psycopg.connect(DATABASE_URL)
 
 
+# --------------------------------------------------------------------------- #
+# Active location (which NOAA station the chart + sync use)
+# --------------------------------------------------------------------------- #
+def _ensure_location() -> None:
+    """Create the active_location table if missing and seed the default once."""
+    with db.connect() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS active_location (
+                id boolean PRIMARY KEY DEFAULT true,
+                station_id text NOT NULL, source text NOT NULL, name text NOT NULL,
+                lat double precision NOT NULL, lon double precision NOT NULL,
+                distance_km double precision, updated_at timestamptz NOT NULL DEFAULT now(),
+                CONSTRAINT single_row CHECK (id)
+            )
+            """
+        )
+        if not conn.execute("SELECT 1 FROM active_location LIMIT 1").fetchone():
+            d = backfill_noaa.DEFAULT_LOCATION
+            conn.execute(
+                "INSERT INTO active_location (station_id, source, name, lat, lon, distance_km)"
+                " VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING",
+                (d["station_id"], d["source"], d["name"], d["lat"], d["lon"], d["distance_km"]),
+            )
+
+
+def get_active() -> dict:
+    with _conn() as conn:
+        r = conn.execute(
+            "SELECT station_id, source, name, lat, lon, distance_km FROM active_location LIMIT 1"
+        ).fetchone()
+    if not r:
+        return dict(backfill_noaa.DEFAULT_LOCATION)
+    return {
+        "station_id": r[0], "source": r[1], "name": r[2],
+        "lat": r[3], "lon": r[4], "distance_km": r[5],
+    }
+
+
+def set_active(loc: dict) -> None:
+    with db.connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO active_location (id, station_id, source, name, lat, lon, distance_km, updated_at)
+            VALUES (true, %s, %s, %s, %s, %s, %s, now())
+            ON CONFLICT (id) DO UPDATE SET
+                station_id = EXCLUDED.station_id, source = EXCLUDED.source, name = EXCLUDED.name,
+                lat = EXCLUDED.lat, lon = EXCLUDED.lon, distance_km = EXCLUDED.distance_km,
+                updated_at = now()
+            """,
+            (loc["station_id"], loc["source"], loc["name"], loc["lat"], loc["lon"], loc["distance_km"]),
+        )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _ensure_location()
+    yield
+
+
+app = FastAPI(title="The Fragile", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
+templates = Jinja2Templates(directory=BASE / "templates")
+
+
+# --------------------------------------------------------------------------- #
+# Queries (all scoped to a source — the active location)
+# --------------------------------------------------------------------------- #
 def _resolve_range(
     range_: str | None, frm: str | None, to: str | None
 ) -> tuple[datetime | None, datetime | None]:
@@ -68,18 +135,19 @@ def _resolve_range(
 def _query_readings(
     start: datetime | None,
     end: datetime | None,
+    source: str,
     limit: int,
     offset: int = 0,
     newest_first: bool = False,
 ) -> list[dict]:
-    clauses, params = [], []
+    clauses, params = ["source = %s"], [source]
     if start is not None:
         clauses.append("ts >= %s")
         params.append(start)
     if end is not None:
         clauses.append("ts <= %s")
         params.append(end)
-    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    where = "WHERE " + " AND ".join(clauses)
     order = "DESC" if newest_first else "ASC"
     params.extend([limit, offset])
 
@@ -108,24 +176,20 @@ def _query_readings(
 
 
 def _effective_bounds(
-    start: datetime | None, end: datetime | None
+    start: datetime | None, end: datetime | None, source: str
 ) -> tuple[datetime | None, datetime | None]:
-    """Fill open-ended bounds from the table's actual min/max ts (for range=all)."""
+    """Fill open-ended bounds from the source's actual min/max ts (for range=all)."""
     if start is not None and end is not None:
         return start, end
     with _conn() as conn:
         dmin, dmax = conn.execute(
-            "SELECT min(ts), max(ts) FROM environmental_reading"
+            "SELECT min(ts), max(ts) FROM environmental_reading WHERE source = %s", (source,)
         ).fetchone()
     return (start or dmin), (end or dmax)
 
 
 def _choose_bucket(start: datetime, end: datetime) -> str | None:
-    """Pick the finest date_trunc unit that keeps the span under MAX_POINTS buckets.
-
-    Returns None for short ranges, meaning 'no aggregation' — preserves full (per-minute
-    Flipper) resolution. Otherwise 'hour' / 'day' / 'week'.
-    """
+    """Finest date_trunc unit keeping the span under MAX_POINTS buckets (None = raw)."""
     span = (end - start).total_seconds()
     if span <= 2 * 86400:  # <= 2 days: show raw
         return None
@@ -136,26 +200,22 @@ def _choose_bucket(start: datetime, end: datetime) -> str | None:
 
 
 def _query_series(
-    start: datetime | None, end: datetime | None, max_points: int = MAX_POINTS
+    start: datetime | None, end: datetime | None, source: str, max_points: int = MAX_POINTS
 ) -> list[dict]:
-    """Chart series for a range, downsampled to ~max_points via Postgres aggregation.
-
-    Aggregated points carry avg pressure plus the min/max for that bucket (so the chart
-    can show an intraday range band). Raw points set min=max=pressure.
-    """
-    start, end = _effective_bounds(start, end)
-    if start is None:  # empty table
+    """Chart series for a range + source, downsampled to ~max_points via aggregation."""
+    start, end = _effective_bounds(start, end, source)
+    if start is None:  # source has no data
         return []
     bucket = _choose_bucket(start, end)
 
-    clauses, params = [], []
+    clauses, params = ["source = %s"], [source]
     if start is not None:
         clauses.append("ts >= %s")
         params.append(start)
     if end is not None:
         clauses.append("ts <= %s")
         params.append(end)
-    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    where = "WHERE " + " AND ".join(clauses)
 
     if bucket is None:
         sql = f"""
@@ -168,8 +228,6 @@ def _query_series(
         """
         params.append(max_points * 5)
     else:
-        # For downsampled buckets the deltas are averaged — a reasonable "typical rate of
-        # change during this bucket" so the hover readout stays populated.
         sql = f"""
             SELECT date_trunc(%s, ts) AS bucket,
                    round(avg(pressure_hpa)::numeric, 2),
@@ -207,6 +265,9 @@ def _query_series(
     ]
 
 
+# --------------------------------------------------------------------------- #
+# Routes
+# --------------------------------------------------------------------------- #
 @app.get("/api/readings")
 def api_readings(
     range: str | None = Query(default=None),
@@ -215,29 +276,55 @@ def api_readings(
     max_points: int = Query(default=MAX_POINTS, ge=10, le=MAX_ROWS),
 ):
     start, end = _resolve_range(range, frm, to)
-    return JSONResponse(_query_series(start, end, max_points))
+    return JSONResponse(_query_series(start, end, get_active()["source"], max_points))
 
 
 @app.get("/api/latest")
 def api_latest():
-    rows = _query_readings(None, None, limit=1, newest_first=True)
+    rows = _query_readings(None, None, get_active()["source"], limit=1, newest_first=True)
     return JSONResponse(rows[0] if rows else None)
 
 
 @app.post("/api/sync")
 def api_sync():
-    """Gap-fill recent NOAA readings on demand (the dashboard's "Update" button).
-
-    The only write route in the app. Uses an autocommit connection (db.connect) so the
-    inserted rows persist correctly.
-    """
+    """Gap-fill recent NOAA readings for the active location (the "Update" button)."""
+    active = get_active()
     conn = db.connect()
     try:
-        inserted = backfill_noaa.sync_recent(conn)
+        inserted = backfill_noaa.sync_recent(conn, station=active["station_id"], source=active["source"])
     finally:
         conn.close()
-    latest = _query_readings(None, None, limit=1, newest_first=True)
+    latest = _query_readings(None, None, active["source"], limit=1, newest_first=True)
     return JSONResponse({"inserted": inserted, "latest": latest[0] if latest else None})
+
+
+@app.get("/api/location")
+def api_get_location():
+    return JSONResponse(get_active())
+
+
+class LocationIn(BaseModel):
+    lat: float
+    lon: float
+
+
+@app.post("/api/location")
+def api_set_location(loc: LocationIn):
+    """Resolve lat/lon to the nearest NOAA pressure station, make it active, sync recent."""
+    resolved = backfill_noaa.resolve_station(loc.lat, loc.lon)
+    if not resolved:
+        return JSONResponse(
+            {"error": "No NOAA pressure station found near that location."}, status_code=404
+        )
+    set_active(resolved)
+    conn = db.connect()
+    try:
+        inserted = backfill_noaa.sync_recent(
+            conn, station=resolved["station_id"], source=resolved["source"]
+        )
+    finally:
+        conn.close()
+    return JSONResponse({"location": get_active(), "inserted": inserted})
 
 
 @app.get("/")
@@ -249,6 +336,7 @@ def index(request: Request):
             "threshold_1h": THRESHOLD_1H,
             "threshold_3h": THRESHOLD_3H,
             "presets": list(PRESETS.keys()),
+            "location": get_active(),
         },
     )
 
@@ -264,7 +352,8 @@ def data(
 ):
     start, end = _resolve_range(range, frm, to)
     rows = _query_readings(
-        start, end, limit=per_page, offset=(page - 1) * per_page, newest_first=True
+        start, end, get_active()["source"], limit=per_page,
+        offset=(page - 1) * per_page, newest_first=True,
     )
     return templates.TemplateResponse(
         request,

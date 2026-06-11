@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -35,8 +37,83 @@ import db
 from reader import Reading
 
 API = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
+MDAPI = "https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=met"
 DEFAULT_STATION = "8530973"
 DEFAULT_SOURCE = "noaa_robbins_reef"
+# Default location: Robbins Reef (the existing data's station).
+DEFAULT_LOCATION = {
+    "station_id": DEFAULT_STATION,
+    "source": DEFAULT_SOURCE,
+    "name": "Robbins Reef",
+    "lat": 40.6584,
+    "lon": -74.0647,
+    "distance_km": None,
+}
+
+
+def source_for(name: str) -> str:
+    """A stable source label from a station name, e.g. 'Robbins Reef' -> 'noaa_robbins_reef'."""
+    slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    return f"noaa_{slug}"
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlam / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def _met_stations() -> list[dict]:
+    with urllib.request.urlopen(MDAPI, timeout=60) as resp:
+        return json.load(resp).get("stations", [])
+
+
+def _has_air_pressure(station_id: str) -> bool:
+    """True if the station currently serves an air_pressure reading."""
+    params = urllib.parse.urlencode(
+        {
+            "product": "air_pressure",
+            "station": station_id,
+            "date": "latest",
+            "units": "metric",
+            "time_zone": "gmt",
+            "format": "json",
+            "application": "the-fragile",
+        }
+    )
+    try:
+        with urllib.request.urlopen(f"{API}?{params}", timeout=30) as resp:
+            payload = json.load(resp)
+    except (urllib.error.URLError, ValueError):
+        return False
+    return bool(payload.get("data"))
+
+
+def resolve_station(lat: float, lon: float, max_candidates: int = 10) -> dict | None:
+    """Nearest NOAA met station to (lat, lon) that actually reports air pressure.
+
+    Ranks all met stations by great-circle distance, then probes the closest few for an
+    air_pressure product (not every met station has a barometer). Returns a location dict
+    or None if none of the candidates serve pressure.
+    """
+    ranked = sorted(
+        _met_stations(),
+        key=lambda s: _haversine_km(lat, lon, float(s["lat"]), float(s["lng"])),
+    )
+    for s in ranked[:max_candidates]:
+        if _has_air_pressure(s["id"]):
+            return {
+                "station_id": s["id"],
+                "source": source_for(s["name"]),
+                "name": s["name"],
+                "lat": float(s["lat"]),
+                "lon": float(s["lng"]),
+                "distance_km": round(_haversine_km(lat, lon, float(s["lat"]), float(s["lng"])), 1),
+            }
+    return None
 
 
 def _fetch(station: str, product: str, begin: datetime, end: datetime) -> dict:
